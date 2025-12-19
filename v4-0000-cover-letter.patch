@@ -1,0 +1,35 @@
+From c4990db6b602c34c3aac6db203686d32c65cc231 Mon Sep 17 00:00:00 2001
+From: Shuai Zhang <shuai.zhang@oss.qualcomm.com>
+Date: Tue, 16 Dec 2025 21:09:54 +0800
+Subject: [PATCH v4 0/1] Bluetooth: btqca: Add WCN6855 firmware priority selection feature
+
+Update WCN6855 firmware to use the new FW file and added a fallback mechanism.
+
+changed v4:
+- Remove the hook function and use the existing mechanism to
+  handle cases where the firmware cannot be found.
+- Link to v3
+  https://lore.kernel.org/all/20251117021645.712753-1-shuai.zhang@oss.qualcomm.com/
+
+changed v2:
+- Remove CC satble
+- Update commit
+- add test steps and log
+- Link to v2
+  https://lore.kernel.org/all/20251114081751.3940541-2-shuai.zhang@oss.qualcomm.com/
+
+Changes v1:
+- Add Fixes tag.
+- Add comments in the commit and code to explain the reason for the changes.
+- Link to v1
+  https://lore.kernel.org/all/20251112074638.1592864-1-quic_shuaz@quicinc.com/
+
+Shuai Zhang (1):
+  Bluetooth: btqca: Add WCN6855 firmware priority selection feature
+
+ drivers/bluetooth/btqca.c | 62 +++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 60 insertions(+), 2 deletions(-)
+
+-- 
+2.34.1
+
