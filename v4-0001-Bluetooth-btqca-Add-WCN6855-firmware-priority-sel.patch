@@ -1,0 +1,134 @@
+From 041aaf93c2d3ac2323c4be2796b46deadec7b8d8 Mon Sep 17 00:00:00 2001
+From: Shuai Zhang <shuai.zhang@oss.qualcomm.com>
+Date: Wed, 17 Dec 2025 11:33:36 +0800
+Subject: [PATCH v4 1/1] Bluetooth: btqca: Add WCN6855 firmware priority
+ selection feature
+
+Historically, WCN685x and QCA2066 shared the same firmware files.
+Now, changes are planned for the firmware that will make it incompatible
+with QCA2066, so a new firmware name is required for WCN685x.
+
+Test Steps:
+ - Boot device
+ - Check the BTFW loading status via dmesg
+
+Sanity pass and Test Log:
+QCA Downloading qca/wcnhpbftfw21.tlv
+Direct firmware load for qca/wcnhpbftfw21.tlv failed with error -2
+QCA Downloading qca/hpbftfw21.tlv
+
+Signed-off-by: Shuai Zhang <shuai.zhang@oss.qualcomm.com>
+---
+ drivers/bluetooth/btqca.c | 56 +++++++++++++++++++++++++++++++++++----
+ 1 file changed, 51 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/bluetooth/btqca.c b/drivers/bluetooth/btqca.c
+index 7c958d606..53390df2a 100644
+--- a/drivers/bluetooth/btqca.c
++++ b/drivers/bluetooth/btqca.c
+@@ -567,10 +567,33 @@ static int qca_inject_cmd_complete_event(struct hci_dev *hdev)
+ 	return hci_recv_frame(hdev, skb);
+ }
+ 
++static inline bool qca_filename_strip_wcn(char *filename, size_t max_size)
++{
++	char fwname[84];
++	char *suffix;
++	size_t prefix_len;
++
++	suffix = strstr(filename, "wcn");
++	if (!suffix)
++		return false;
++
++	prefix_len = (size_t)(suffix - filename);
++	if (prefix_len >= sizeof(fwname))
++		prefix_len = sizeof(fwname) - 1;
++
++	strscpy(fwname, filename, prefix_len + 1);
++
++	snprintf(fwname + strlen(fwname),
++		 sizeof(fwname) - strlen(fwname),
++		 "%s", suffix + 3);
++
++	strscpy(filename, fwname, max_size);
++		return true;
++}
+ static int qca_download_firmware(struct hci_dev *hdev,
+ 				 struct qca_fw_config *config,
+ 				 enum qca_btsoc_type soc_type,
+-				 u8 rom_ver)
++				 u8 rom_ver, const char *firmware_name)
+ {
+ 	const struct firmware *fw;
+ 	u8 *data;
+@@ -598,6 +621,25 @@ static int qca_download_firmware(struct hci_dev *hdev,
+ 				return ret;
+ 			}
+ 		}
++		/* Legacy chips continue to load the original firmware */
++		else if (!firmware_name && (soc_type == QCA_WCN6855)) {
++			bt_dev_dbg(hdev, "QCA Failed to request file: %s (%d)",
++				   config->fwname, ret);
++			if (config->type == TLV_TYPE_PATCH) {
++				snprintf(config->fwname, sizeof(config->fwname),
++					 "qca/hpbtfw%02x.tlv", rom_ver);
++			} else if (config->type == TLV_TYPE_NVM) {
++				if (!qca_filename_strip_wcn(config->fwname, sizeof(config->fwname)))
++					return ret;
++			}
++			bt_dev_info(hdev, "QCA Downloading %s", config->fwname);
++			ret = request_firmware(&fw, config->fwname, &hdev->dev);
++			if (ret) {
++				bt_dev_err(hdev, "QCA Failed to request file: %s (%d)",
++					   config->fwname, ret);
++				return ret;
++			}
++		}
+ 		/* If the board-specific file is missing, try loading the default
+ 		 * one, unless that was attempted already.
+ 		 */
+@@ -846,9 +888,13 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 			snprintf(config.fwname, sizeof(config.fwname),
+ 				 "qca/msbtfw%02x.mbn", rom_ver);
+ 			break;
++		/* Due to historical reasons, WCN685x chip has been using firmware
++		 * without the "wcn" prefix. The mapping between the chip and its
++		 * corresponding firmware has now been corrected.
++		 */
+ 		case QCA_WCN6855:
+ 			snprintf(config.fwname, sizeof(config.fwname),
+-				 "qca/hpbtfw%02x.tlv", rom_ver);
++				 "qca/wcnhpbtfw%02x.tlv", rom_ver);
+ 			break;
+ 		case QCA_WCN7850:
+ 			snprintf(config.fwname, sizeof(config.fwname),
+@@ -860,7 +906,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		}
+ 	}
+ 
+-	err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	err = qca_download_firmware(hdev, &config, soc_type, rom_ver, rampatch_name);
+ 	if (err < 0) {
+ 		bt_dev_err(hdev, "QCA Failed to download patch (%d)", err);
+ 		return err;
+@@ -923,7 +969,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		case QCA_WCN6855:
+ 			qca_read_fw_board_id(hdev, &boardid);
+ 			qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
+-						  "hpnv", soc_type, ver, rom_ver, boardid);
++						  "wcnhpnv", soc_type, ver, rom_ver, boardid);
+ 			break;
+ 		case QCA_WCN7850:
+ 			qca_get_nvm_name_by_board(config.fwname, sizeof(config.fwname),
+@@ -935,7 +981,7 @@ int qca_uart_setup(struct hci_dev *hdev, uint8_t baudrate,
+ 		}
+ 	}
+ 
+-	err = qca_download_firmware(hdev, &config, soc_type, rom_ver);
++	err = qca_download_firmware(hdev, &config, soc_type, rom_ver, firmware_name);
+ 	if (err < 0) {
+ 		bt_dev_err(hdev, "QCA Failed to download NVM (%d)", err);
+ 		return err;
+-- 
+2.34.1
+
